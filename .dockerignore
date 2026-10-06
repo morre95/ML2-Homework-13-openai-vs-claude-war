@@ -1,0 +1,8 @@
+.git
+.env
+.box.env
+results
+data/tasks
+proxy/config
+.venv
+**/__pycache__

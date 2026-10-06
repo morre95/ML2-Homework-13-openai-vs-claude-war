@@ -1,0 +1,10 @@
+FROM shootout/base:latest
+RUN npm install -g @anthropic-ai/claude-code && claude --version
+COPY docker/box_entry.sh /usr/local/bin/box_entry.sh
+ENV BOX=claude \
+    DISABLE_TELEMETRY=1 \
+    DISABLE_AUTOUPDATER=1 \
+    DISABLE_ERROR_REPORTING=1 \
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+USER agent
+WORKDIR /workspace

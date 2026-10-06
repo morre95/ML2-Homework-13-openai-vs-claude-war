@@ -1,0 +1,44 @@
+# Shared toolchain image: everything the Polyglot tests need (mirrors Aider's
+# benchmark image), with Gradle/Cargo caches pre-warmed so tests run offline.
+# Build context: repo root. The upstream benchmark (with reference solutions) is
+# only bind-mounted during the warm step and never ends up in the image.
+FROM python:3.12-bookworm
+
+ARG AGENT_UID=1000
+ARG GO_VERSION=1.22.12
+ARG NODE_MAJOR=20
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake libboost-all-dev libtbb-dev openjdk-17-jdk-headless \
+        jq ripgrep less vim-tiny tmux procps \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ARCH=$(dpkg --print-architecture) \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOFLAGS=-buildvcs=false
+
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --no-modify-path
+ENV PATH=/opt/cargo/bin:$PATH
+
+RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
+    && apt-get install -y nodejs && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /npm-install && cd /npm-install && npm init -y >/dev/null \
+    && npm install jest@29.7.0 @babel/core@7.25.2 @exercism/babel-preset-javascript@0.2.1 \
+        @exercism/eslint-config-javascript@0.6.0 @types/jest@29.5.12 @types/node@20.12.12 \
+        babel-jest@29.6.4 core-js@3.37.1 eslint@8.49.0
+
+RUN pip install --no-cache-dir pytest==8.3.4 aiohttp==3.11.11 pyyaml==6.0.2
+
+ENV GRADLE_USER_HOME=/opt/gradle-home
+COPY bench/polyglot.py bench/reference.py /opt/bench/
+RUN --mount=type=bind,source=data/polyglot-benchmark,target=/src/polyglot-benchmark \
+    python /opt/bench/reference.py --bench /src/polyglot-benchmark --warm \
+    && chmod -R a+rwX /opt/gradle-home /opt/cargo /npm-install
+
+# Gradle chmods its own cache dirs, so they must be owned by the uid that runs tests
+# (eval containers run as AGENT_UID, which defaults to the host user's uid).
+RUN useradd -m -u ${AGENT_UID} -s /bin/bash agent \
+    && chown -R agent:agent /opt/gradle-home /opt/cargo /npm-install \
+    && git config --system user.email agent@shootout.local && git config --system user.name agent \
+    && git config --system --add safe.directory '*'

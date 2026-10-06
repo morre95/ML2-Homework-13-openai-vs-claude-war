@@ -1,0 +1,13 @@
+[project]
+name = "harness-shootout"
+version = "0.1.0"
+description = "Claude Code vs Codex: who builds the best self-evolving coding harness on an equal token budget"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,13 @@
+model_provider = "meter"
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[model_providers.meter]
+name = "Metered OpenAI"
+base_url = "http://proxy:8080/openai/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+request_max_retries = 4
+stream_max_retries = 10
+stream_idle_timeout_ms = 300000
+supports_websockets = false

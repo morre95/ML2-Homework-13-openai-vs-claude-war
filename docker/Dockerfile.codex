@@ -1,0 +1,8 @@
+FROM shootout/base:latest
+RUN npm install -g @openai/codex && codex --version
+COPY docker/box_entry.sh /usr/local/bin/box_entry.sh
+COPY docker/codex_config.toml /home/agent/.codex/config.toml
+RUN chown -R agent:agent /home/agent/.codex
+ENV BOX=codex
+USER agent
+WORKDIR /workspace

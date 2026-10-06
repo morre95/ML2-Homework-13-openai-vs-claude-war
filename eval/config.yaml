@@ -1,0 +1,31 @@
+# Models that drive the harnesses during evaluation (2x2: every harness x every model).
+# The same model is what each build box may use to self-test its harness on dev tasks:
+# claude-box -> models.claude, codex-box -> models.gpt.
+models:
+  claude: claude-haiku-4-5
+  gpt: gpt-5.4-mini
+
+# Harness packages to evaluate (directories that contain __main__.py), relative to the repo root.
+harnesses:
+  seed: seed/harness
+  claude: results/build/claude/final_harness
+  codex: results/build/codex/final_harness
+
+# Archives used for the evolution-curve spot check.
+archives:
+  claude: results/build/claude/workspace/archive
+  codex: results/build/codex/workspace/archive
+
+split: heldout          # data/tasks/<split>
+n_tasks: 100            # 0 = whole split
+seeds: 3                # repeats per (harness, model, task)
+tries: 2                # Aider rule: one retry with test output as feedback
+jobs: 6                 # parallel task containers
+solve_timeout: 900      # seconds per solve attempt
+memory: 4g              # per task container
+
+# Re-score archived generations on a held-out slice to check the self-reported curve.
+spotcheck:
+  generations: 3        # first, middle, last
+  n_tasks: 20
+  seeds: 1

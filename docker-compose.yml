@@ -1,0 +1,76 @@
+# Run via ./run_build.sh / eval/run_eval.py, which generate proxy/config/keys.json
+# and .box.env first. Build boxes sit on an internal network: the only thing they
+# can reach is the proxy (API on :8080, allowlisted package mirrors via :3128).
+name: shootout
+
+x-box-env: &box-env
+  HTTPS_PROXY: http://proxy:3128
+  HTTP_PROXY: http://proxy:3128
+  https_proxy: http://proxy:3128
+  http_proxy: http://proxy:3128
+  NO_PROXY: proxy,localhost,127.0.0.1
+  no_proxy: proxy,localhost,127.0.0.1
+  WALL_CLOCK_SECONDS: ${WALL_CLOCK_SECONDS:-21600}
+  MAX_SESSIONS: ${MAX_SESSIONS:-30}
+  MIN_REMAINING_TOKENS: ${MIN_REMAINING_TOKENS:-20000}
+  TOKEN_BUDGET: ${BUILD_TOKEN_BUDGET:-2000000}
+  SOLVE_TIMEOUT: ${SOLVE_TIMEOUT:-900}
+
+services:
+  proxy:
+    image: shootout/proxy:latest
+    build: { context: ., dockerfile: docker/Dockerfile.proxy }
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      BUDGET_MODE: ${BUDGET_MODE:-all}
+      KEYS_FILE: /config/keys.json
+      USAGE_DIR: /usage
+    volumes:
+      - ./proxy/config:/config:ro
+      - ./results/usage:/usage
+    ports:
+      - "127.0.0.1:${PROXY_PORT:-8080}:8080"
+    networks: [sandbox, egress]
+    restart: unless-stopped
+
+  claude-box:
+    image: shootout/claude:latest
+    build: { context: ., dockerfile: docker/Dockerfile.claude }
+    profiles: [build]
+    depends_on: [proxy]
+    networks: [sandbox]
+    command: ["bash", "/usr/local/bin/box_entry.sh"]
+    environment:
+      <<: *box-env
+      BOX_KEY: ${CLAUDE_BOX_KEY:?run make_keys first}
+      ANTHROPIC_API_KEY: ${CLAUDE_BOX_KEY}
+      ANTHROPIC_BASE_URL: http://proxy:8080/anthropic
+      DEV_MODEL: ${EVAL_CLAUDE_MODEL:?run make_keys first}
+      BUILDER_MODEL: ${CLAUDE_BUILDER_MODEL:-}
+    volumes:
+      - ./results/build/claude/workspace:/workspace
+      - ./data/tasks/dev:/workspace/dev:ro
+
+  codex-box:
+    image: shootout/codex:latest
+    build: { context: ., dockerfile: docker/Dockerfile.codex }
+    profiles: [build]
+    depends_on: [proxy]
+    networks: [sandbox]
+    command: ["bash", "/usr/local/bin/box_entry.sh"]
+    environment:
+      <<: *box-env
+      BOX_KEY: ${CODEX_BOX_KEY:?run make_keys first}
+      OPENAI_API_KEY: ${CODEX_BOX_KEY}
+      OPENAI_BASE_URL: http://proxy:8080/openai/v1
+      DEV_MODEL: ${EVAL_GPT_MODEL:?run make_keys first}
+      BUILDER_MODEL: ${CODEX_BUILDER_MODEL:-}
+    volumes:
+      - ./results/build/codex/workspace:/workspace
+      - ./data/tasks/dev:/workspace/dev:ro
+
+networks:
+  sandbox:
+    internal: true
+  egress: {}

@@ -1,0 +1,8 @@
+.env
+.box.env
+data/
+results/
+proxy/config/
+.venv/
+__pycache__/
+*.pyc
