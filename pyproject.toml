@@ -2,6 +2,8 @@
 name = "harness-shootout"
 version = "0.1.0"
 description = "Claude Code vs Codex: who builds the best self-evolving coding harness on an equal token budget"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
