@@ -50,6 +50,8 @@ def build_harness_image(name: str, pkg: Path) -> str:
     if not (pkg / "__main__.py").exists():
         raise SystemExit(f"{name}: {pkg} is not a harness package (no __main__.py)")
     h = hashlib.sha256()
+    base_id = sh(["docker", "image", "inspect", "-f", "{{.Id}}", BASE_IMAGE], capture_output=True).stdout.strip()
+    h.update(base_id.encode())
     for f in sorted(p for p in pkg.rglob("*") if p.is_file() and "__pycache__" not in p.parts):
         h.update(str(f.relative_to(pkg)).encode())
         h.update(f.read_bytes())
@@ -176,9 +178,7 @@ def ensure_proxy() -> None:
 
 def select_tasks(cfg: dict, n: int) -> list[Path]:
     tasks = polyglot.list_tasks(ROOT / "data" / "tasks" / cfg["split"])
-    if n and n < len(tasks):
-        tasks = sorted(random.Random(2024).sample(tasks, n))
-    return tasks
+    return polyglot.stratified_sample(tasks, n, 2024)
 
 
 def archive_generations(archive: Path, k: int) -> list[Path]:

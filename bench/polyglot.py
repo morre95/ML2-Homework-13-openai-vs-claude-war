@@ -92,10 +92,28 @@ def problem_statement(task_dir: str | Path) -> str:
     return text + INSTRUCTIONS_ADDENDUM.format(file_list=file_list)
 
 
+STACK_FRAME = re.compile(r"^\s+at \S+\(.*\)\s*$")
+
+
+def _strip_stack_frames(output: str) -> str:
+    """Collapse JVM-style `at pkg.Class.method(File.java:12)` runs, which otherwise
+    crowd the actual assertion messages out of the truncated feedback."""
+    lines, out, run = output.splitlines(), [], 0
+    for line in lines + [""]:
+        if STACK_FRAME.match(line):
+            run += 1
+            continue
+        if run:
+            out.append(f"        ... {run} stack frames omitted")
+            run = 0
+        out.append(line)
+    return "\n".join(out[:-1])
+
+
 def feedback_message(test_output: str, task_dir: str | Path) -> str:
     task = load_task(task_dir)
     file_list = " ".join(Path(f).name for f in task["solution_files"])
-    out = test_output
+    out = _strip_stack_frames(test_output)
     if len(out) > FEEDBACK_MAX_CHARS:
         out = out[: FEEDBACK_MAX_CHARS // 2] + "\n...[truncated]...\n" + out[-FEEDBACK_MAX_CHARS // 2 :]
     return out + TEST_FAILURES.format(file_list=file_list)
@@ -159,6 +177,14 @@ def run_tests(task_dir: str | Path, workdir: str | Path, timeout: int = TEST_TIM
                 link.symlink_to(NPM_INSTALL / name)
         cmd = ["npm", "run", "test", "--silent"]
     elif lang == "cpp":
+        # Exercism's CMakeLists derives the exercise (and test file) name from the
+        # directory name, which is `work`, `taskdir`, `cpp__x` etc. here, so pin it.
+        test_cpp = next(f for f in task["test_files"] if f.endswith("_test.cpp"))
+        exercise = Path(test_cpp).name.removesuffix("_test.cpp")
+        cmakelists = (task_dir / "CMakeLists.txt").read_text()
+        cmakelists = re.sub(r"get_filename_component\(exercise \$\{CMAKE_CURRENT_SOURCE_DIR\} NAME\)",
+                            f"set(exercise {exercise})", cmakelists)
+        (workdir / "CMakeLists.txt").write_text(cmakelists)
         cmd = ["bash", "-c", "mkdir -p build && cd build && cmake -DEXERCISM_RUN_ALL_TESTS=1 -G 'Unix Makefiles' .. >/dev/null && make"]
     else:
         raise ValueError(lang)
@@ -192,6 +218,25 @@ def prepare_retry(task_dir: str | Path, workdir: str | Path, test_output: str, f
 
 def list_tasks(tasks_root: str | Path) -> list[Path]:
     return sorted(p for p in Path(tasks_root).iterdir() if (p / ".meta" / "config.json").exists())
+
+
+def stratified_sample(tasks: list[Path], n: int, seed: int) -> list[Path]:
+    """Deterministic sample of n tasks spread round-robin over languages."""
+    if not n or n >= len(tasks):
+        return list(tasks)
+    rng = random.Random(seed)
+    by_lang: dict[str, list[Path]] = {}
+    for t in sorted(tasks):
+        by_lang.setdefault(t.name.split("__", 1)[0], []).append(t)
+    pools = [by_lang[lang] for lang in sorted(by_lang)]
+    for pool in pools:
+        rng.shuffle(pool)
+    picked: list[Path] = []
+    while len(picked) < n:
+        for pool in pools:
+            if pool and len(picked) < n:
+                picked.append(pool.pop())
+    return sorted(picked)
 
 
 # ---------------------------------------------------------------- dev evaluator
@@ -229,8 +274,7 @@ def eval_dev(args) -> None:
     if args.ids:
         wanted = set(args.ids.split(","))
         tasks = [t for t in tasks if t.name in wanted]
-    if args.n and args.n < len(tasks):
-        tasks = random.Random(args.seed).sample(tasks, args.n)
+    tasks = stratified_sample(tasks, args.n, args.seed)
     harness_root = Path(args.harness_root).resolve()
     results = []
     with cf.ThreadPoolExecutor(max_workers=args.jobs) as ex:

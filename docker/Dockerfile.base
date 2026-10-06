@@ -31,6 +31,15 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
 RUN pip install --no-cache-dir pytest==8.3.4 aiohttp==3.11.11 pyyaml==6.0.2
 
 ENV GRADLE_USER_HOME=/opt/gradle-home
+
+# Debian's /etc/profile resets PATH for login shells (Codex runs every command via
+# `bash -lc`), which would hide cargo and go; re-export the toolchain env there.
+RUN printf '%s\n' \
+        'export PATH=/opt/cargo/bin:/usr/local/go/bin:$PATH' \
+        'export RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo GRADLE_USER_HOME=/opt/gradle-home' \
+        'export GOTOOLCHAIN=local GOFLAGS=-buildvcs=false' \
+        > /etc/profile.d/toolchains.sh
+
 COPY bench/polyglot.py bench/reference.py /opt/bench/
 RUN --mount=type=bind,source=data/polyglot-benchmark,target=/src/polyglot-benchmark \
     python /opt/bench/reference.py --bench /src/polyglot-benchmark --warm \
