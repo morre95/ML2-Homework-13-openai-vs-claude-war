@@ -43,10 +43,10 @@ services:
     command: ["bash", "/usr/local/bin/box_entry.sh"]
     environment:
       <<: *box-env
-      BOX_KEY: ${CLAUDE_BOX_KEY:?run make_keys first}
-      ANTHROPIC_API_KEY: ${CLAUDE_BOX_KEY}
+      BOX_KEY: ${CLAUDE_BOX_KEY:-}
+      ANTHROPIC_API_KEY: ${CLAUDE_BOX_KEY:-}
       ANTHROPIC_BASE_URL: http://proxy:8080/anthropic
-      DEV_MODEL: ${EVAL_CLAUDE_MODEL:?run make_keys first}
+      DEV_MODEL: ${EVAL_CLAUDE_MODEL:-}
       BUILDER_MODEL: ${CLAUDE_BUILDER_MODEL:-}
     volumes:
       - ./results/build/claude/workspace:/workspace
@@ -61,10 +61,10 @@ services:
     command: ["bash", "/usr/local/bin/box_entry.sh"]
     environment:
       <<: *box-env
-      BOX_KEY: ${CODEX_BOX_KEY:?run make_keys first}
-      OPENAI_API_KEY: ${CODEX_BOX_KEY}
+      BOX_KEY: ${CODEX_BOX_KEY:-}
+      OPENAI_API_KEY: ${CODEX_BOX_KEY:-}
       OPENAI_BASE_URL: http://proxy:8080/openai/v1
-      DEV_MODEL: ${EVAL_GPT_MODEL:?run make_keys first}
+      DEV_MODEL: ${EVAL_GPT_MODEL:-}
       BUILDER_MODEL: ${CODEX_BUILDER_MODEL:-}
     volumes:
       - ./results/build/codex/workspace:/workspace

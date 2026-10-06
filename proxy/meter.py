@@ -175,40 +175,68 @@ async def forward(req: web.Request) -> web.StreamResponse:
 
     t0 = time.time()
     session: aiohttp.ClientSession = req.app["session"]
-    async with session.request(req.method, url, headers=headers, data=body) as up:
-        resp = web.StreamResponse(status=up.status)
-        for k, v in up.headers.items():
-            if k.lower() not in ("content-length", "content-encoding", "transfer-encoding", "connection"):
-                resp.headers[k] = v
+    usage: dict = {}
+    status = 0
+    try:
+        async with session.request(req.method, url, headers=headers, data=body) as up:
+            status = up.status
+            return await relay(req, up, metered, usage)
+    finally:
+        # Bill even if the client hung up early (Codex closes right after response.completed).
+        if metered:
+            record(name, vendor, path, model, status, usage, time.time() - t0)
+
+
+async def relay(req: web.Request, up: aiohttp.ClientResponse, metered: bool, usage: dict) -> web.StreamResponse:
+    """Stream the upstream response to the client, collecting usage into `usage`.
+    Keeps reading upstream after a client disconnect so the usage event is still seen."""
+    resp = web.StreamResponse(status=up.status)
+    for k, v in up.headers.items():
+        if k.lower() not in ("content-length", "content-encoding", "transfer-encoding", "connection"):
+            resp.headers[k] = v
+    client_gone = False
+    try:
         await resp.prepare(req)
-        usage: dict = {}
-        is_sse = "text/event-stream" in up.headers.get("content-type", "")
-        buf, raw = b"", bytearray()
-        async for chunk in up.content.iter_any():
-            await resp.write(chunk)
-            if not metered:
-                continue
-            if is_sse:
-                buf += chunk
-                *lines, buf = buf.split(b"\n")
-                for line in lines:
-                    if line.startswith(b"data:"):
-                        try:
-                            u = extract_usage(json.loads(line[5:].strip()))
-                        except (json.JSONDecodeError, UnicodeDecodeError):
-                            u = None
-                        if u:
-                            usage.update(u)
-            else:
-                raw += chunk
-        if metered and not is_sse and raw:
+    except (ConnectionError, aiohttp.ClientConnectionResetError):
+        client_gone = True
+    is_sse = "text/event-stream" in up.headers.get("content-type", "")
+    buf, raw = b"", bytearray()
+    async for chunk in up.content.iter_any():
+        if not client_gone:
             try:
-                usage = extract_usage(json.loads(raw)) or {}
-            except json.JSONDecodeError:
-                pass
-        await resp.write_eof()
-    if metered:
-        record(name, vendor, path, model, up.status, usage, time.time() - t0)
+                await resp.write(chunk)
+            except (ConnectionError, aiohttp.ClientConnectionResetError):
+                client_gone = True
+        if not metered:
+            if client_gone:
+                break
+            continue
+        if is_sse:
+            buf += chunk
+            *lines, buf = buf.split(b"\n")
+            for line in lines:
+                if line.startswith(b"data:"):
+                    try:
+                        u = extract_usage(json.loads(line[5:].strip()))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        u = None
+                    # Anthropic reports usage in message_start and again in message_delta,
+                    # where cache fields can be 0; every field is either once or cumulative.
+                    if u:
+                        for k, v in u.items():
+                            usage[k] = max(usage.get(k, 0), v or 0)
+        else:
+            raw += chunk
+    if metered and not is_sse and raw:
+        try:
+            usage.update(extract_usage(json.loads(raw)) or {})
+        except json.JSONDecodeError:
+            pass
+    if not client_gone:
+        try:
+            await resp.write_eof()
+        except (ConnectionError, aiohttp.ClientConnectionResetError):
+            pass
     return resp
 
 
