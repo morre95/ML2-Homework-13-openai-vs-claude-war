@@ -102,7 +102,50 @@ uv run eval/analyze.py            # writes results/report.md and results/plots/
 
 `run_build.sh` runs `prepare.py` and builds the images itself if they're missing.
 The evaluator resumes where it left off unless you pass `--fresh`.
-For a quick, cheap run: `uv run eval/run_eval.py --n-tasks 5 --seeds 1 --yes`.
+
+### `run_build.sh` options
+
+| Option | Effect |
+|---|---|
+| `--fresh` | Wipe the previous build workspaces and their usage logs, then start over |
+| `BOXES=codex ./run_build.sh` | Run only one box (`claude` or `codex`). For smoke tests only; not a fair match |
+
+### `eval/run_eval.py` flags
+
+The number of runs is *harnesses × models × seeds × tasks*. With the defaults that is
+3 × 2 × 3 × 100 = 1,800. Every flag overrides the matching value in `eval/config.yaml`
+for that run only.
+
+| Flag | Default | Effect |
+|---|---|---|
+| `--n-tasks N` | `100` | Random subset of held-out tasks (the same subset every time for a given N) |
+| `--seeds N` | `3` | Repeats per (harness, model, task) |
+| `--models LIST` | all | Comma-separated model aliases from the config, e.g. `gpt` or `claude,gpt` |
+| `--harnesses LIST` | all | Comma-separated harness names, e.g. `claude,codex` (drop `seed` to skip the baseline) |
+| `--jobs N` | `6` | Parallel task containers. Changes speed, not the number of runs |
+| `--spotcheck` | off | Re-score archived generations on a 20-task held-out slice instead of the main grid |
+| `--fresh` | off | Discard previous results for this mode instead of resuming |
+| `--yes` | off | Skip the cost confirmation prompt |
+| `--config PATH` | `eval/config.yaml` | Use a different config file |
+
+Typical sizes:
+
+```bash
+uv run eval/run_eval.py --fresh --n-tasks 5 --seeds 1 --yes    # ~30 runs: does everything work?
+uv run eval/run_eval.py --fresh --n-tasks 30 --seeds 1         # ~180 runs: a first look
+uv run eval/run_eval.py --fresh --n-tasks 50 --seeds 1         # ~300 runs
+uv run eval/run_eval.py --fresh                                # 1,800 runs: the full evaluation
+uv run eval/run_eval.py --fresh --harnesses claude,codex --models gpt --n-tasks 30 --seeds 1   # ~60 runs, head-to-head only
+```
+
+Smaller runs are noisier. With 30 tasks and 1 seed, the 95% confidence interval on each pass
+rate is roughly ±15 points, so check the intervals and p-values in the report before
+declaring a winner. Keep `seed` in `--harnesses` if you want the improvement-over-seed table,
+and keep both models if you want the cross-model headline. Rerunning later with a larger
+`--n-tasks` (without `--fresh`) reuses only the tasks the two subsets have in common.
+
+`eval/analyze.py` takes no flags. It reads whatever is in `results/eval/` and writes
+`results/report.md` and `results/plots/`.
 
 ## Configuration
 
